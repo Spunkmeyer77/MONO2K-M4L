@@ -1,0 +1,5 @@
+build/
+build-*/
+external/max-sdk-base/
+*.wav
+engine_test
