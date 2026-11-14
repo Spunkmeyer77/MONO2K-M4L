@@ -23,6 +23,13 @@
 #define C74_VARFUN(VARFUN_IMPL, ...) C74_JOIN_2(C74_VARFUN_, C74_NUM_ARGS(__VA_ARGS__))( VARFUN_IMPL, __VA_ARGS__ )
 #endif
 
+#ifndef M2K_EXT_NAME
+#define M2K_EXT_NAME "mono2k~"
+#endif
+#ifndef M2K_VERSION
+#define M2K_VERSION "dev"
+#endif
+
 #define SMALL 320                 /* a 160-point view on a Retina screen: its pixels, so nothing scales it again */
 
 typedef struct _mono2k {
@@ -152,7 +159,7 @@ static void mono2k_paper(t_mono2k *x, double r, double g, double b) { set_col(x-
 
 void ext_main(void *r)
 {
-    t_class *c = class_new("mono2k~", (method)mono2k_new, (method)mono2k_free, sizeof(t_mono2k), 0L, A_GIMME, 0);
+    t_class *c = class_new(M2K_EXT_NAME, (method)mono2k_new, (method)mono2k_free, sizeof(t_mono2k), 0L, A_GIMME, 0);
     class_addmethod(c, (method)mono2k_dsp64, "dsp64", A_CANT, 0);
     class_addmethod(c, (method)mono2k_assist, "assist", A_CANT, 0);
     class_addmethod(c, (method)mono2k_btn, "btn", A_LONG, A_LONG, 0);
@@ -172,7 +179,7 @@ void ext_main(void *r)
     class_dspinit(c);
     class_register(CLASS_BOX, c);
     mono2k_class = c;
-    post("mono2k~ (MONO2K for Max for Live) - GPL-3.0 - core by Inigo Hernandez");
+    post("%s: MONO2K for Max for Live v%s - GPL-3.0 - core by Inigo Hernandez", M2K_EXT_NAME, M2K_VERSION);
 }
 
 /* the core is one per process: the first MONO2K plays it. Another (a second device, or the copy a freeze makes while

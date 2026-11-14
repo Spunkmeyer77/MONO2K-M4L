@@ -3,7 +3,10 @@
 # Writes MONO2K.amxd (a Max for Live instrument) around the mono2k~ object and the panel jsui.
 import json, struct, sys
 
-VERSION = "1.2.1"
+import os
+VERSION = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "VERSION")).read().strip()
+EXT = "mono2k_%s~" % VERSION.replace(".", "")
+PANEL = "mono2k_panel_%s.js" % VERSION.replace(".", "")
 OUT = sys.argv[1] if len(sys.argv) > 1 else "MONO2K.amxd"
 DW, DH = 850, 169
 
@@ -52,7 +55,7 @@ ORANGE = [1.0, 0.5, 0.15, 1.0]
 box("panel", [10, 600, 120, 40], pres=[0, 0, DW, DH], ins=1, outs=0, bgcolor=DARK, background=1, rounded=0, border=0)
 
 # the engine
-eng = obj("mono2k~", 300, 300, ins=1, outs=7, otype=["signal", "signal", "", "", "", "", ""], w=360)
+eng = obj(EXT, 300, 300, ins=1, outs=7, otype=["signal", "signal", "", "", "", "", ""], w=360)
 pha = obj("plugphasor~", 300, 200, outs=1, otype=["signal"])
 mid = obj("midiin", 420, 200, outs=1, otype=["int"])
 out = obj("plugout~", 300, 420, ins=2, outs=0)
@@ -67,7 +70,7 @@ sbig = obj("s ---m2kbig", 420, 380, ins=1, outs=0); wire(eng, 3, sbig)
 
 # the panel
 pnl = box("jsui", [240, 460, 556, 165], pres=[172, 2, 556, 165], ins=1, outs=1, otype=[""],
-          filename="mono2k_panel.js", parameter_enable=0, border=0)
+          filename=PANEL, parameter_enable=0, border=0)
 wire(eng, 4, pnl)
 sled = obj("s ---m2kleds", 560, 380, ins=1, outs=0); wire(eng, 4, sled)
 wire(pnl, 0, eng)
@@ -169,7 +172,7 @@ srb = sbox("newobj", [700, 60, 100, 22], "r ---m2kbig", ins=0, outs=1)
 spw = sbox("jit.pwindow", [50, 34, 480, 480], pres=[50, 34, 480, 480], ins=1, outs=2, otype=["jit_matrix", ""], border=0.0, sync=1)
 srl = sbox("newobj", [700, 100, 100, 22], "r ---m2kleds", ins=0, outs=1)
 sjs = sbox("jsui", [12, 524, 556, 165], pres=[12, 524, 556, 165], ins=1, outs=1, otype=[""],
-           filename="mono2k_panel.js", parameter_enable=0, border=0)
+           filename=PANEL, parameter_enable=0, border=0)
 ssc = sbox("newobj", [700, 140, 100, 22], "s ---m2kcmd", ins=1, outs=0)
 # ALWAYS ON TOP: the window floats over Live (kept in the Live set), applied again whenever the window opens
 top = sbox("live.text", [12, 8, 120, 20], pres=[12, 8, 120, 20], ins=1, outs=2, otype=["", ""], mode=1,
@@ -214,8 +217,8 @@ patcher = {
         "digest": "MONO2K for Max for Live", "tags": "synth sequencer monomachine", "style": "",
         "boxes": boxes, "lines": lines,
         "dependency_cache": [
-            {"name": "mono2k_panel.js", "bootpath": "~/MONO2K", "patcherrelativepath": ".", "type": "TEXT", "implicit": 1},
-            {"name": "mono2k~.mxo", "type": "iLaX"},
+            {"name": PANEL, "bootpath": "~/MONO2K", "patcherrelativepath": ".", "type": "TEXT", "implicit": 1},
+            {"name": EXT + ".mxo", "type": "iLaX"},
         ],
         "latency": 0, "is_mpe": 0, "minimum_live_version": "", "minimum_max_version": "", "platform_compatibility": 0,
         "autosave": 0,

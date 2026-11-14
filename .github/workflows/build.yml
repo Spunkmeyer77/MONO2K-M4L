@@ -35,7 +35,8 @@ jobs:
           cmake --build build-mac --config Release
       - name: Check architectures and minimum macOS (must run on macOS 12 Monterey)
         run: |
-          BIN="build/externals/mono2k~.mxo/Contents/MacOS/mono2k~"
+          N="mono2k_$(tr -d '.\n' < VERSION)~"
+          BIN="build/externals/$N.mxo/Contents/MacOS/$N"
           lipo -info "$BIN"
           lipo -info "$BIN" | grep -q arm64 && lipo -info "$BIN" | grep -q x86_64
           for a in arm64 x86_64; do
@@ -48,7 +49,8 @@ jobs:
           done
       - name: Package
         run: |
-          cd build/externals && ditto -c -k --keepParent "mono2k~.mxo" ../../mono2k-mac.zip
+          N="mono2k_$(tr -d '.\n' < VERSION)~"
+          cd build/externals && ditto -c -k --keepParent "$N.mxo" ../../mono2k-mac.zip
       - uses: actions/upload-artifact@v5
         with: { name: mono2k-mac, path: mono2k-mac.zip }
 
@@ -65,7 +67,9 @@ jobs:
           cmake --build build-win --config Release
       - name: Package
         shell: pwsh
-        run: Compress-Archive -Path "build/externals/mono2k~.mxe64" -DestinationPath mono2k-win.zip
+        run: |
+          $d = (Get-Content VERSION).Trim() -replace '\.', ''
+          Compress-Archive -Path "build/externals/mono2k_$d~.mxe64" -DestinationPath mono2k-win.zip
       - uses: actions/upload-artifact@v5
         with: { name: mono2k-win, path: mono2k-win.zip }
 
@@ -81,7 +85,11 @@ jobs:
         run: |
           V="${GITHUB_REF_NAME#v}"
           mkdir -p "MONO2K-$V"
-          cp device/MONO2K.amxd device/mono2k_panel.js "MONO2K-$V/"
+          D="$(echo "$V" | tr -d .)"
+          [ "$V" = "$(tr -d '\n' < VERSION)" ] || { echo "tag $V and VERSION differ"; exit 1; }
+          cp device/MONO2K.amxd "MONO2K-$V/"
+          cp device/mono2k_panel.js "MONO2K-$V/mono2k_panel_$D.js"
+          cp device/mono2k_panel.js "mono2k_panel_$D.js"
           cp docs/*.pdf "MONO2K-$V/" 2>/dev/null || true
           (cd "MONO2K-$V" && unzip -q ../dl/mono2k-mac/mono2k-mac.zip && unzip -q ../dl/mono2k-win/mono2k-win.zip)
           cp LICENSE "MONO2K-$V/LICENSE.txt"
@@ -96,5 +104,5 @@ jobs:
             mono2k-external-*-mac.zip
             mono2k-external-*-win.zip
             MONO2K-*-unfrozen.amxd
-            device/mono2k_panel.js
+            mono2k_panel_*.js
             docs/*.pdf

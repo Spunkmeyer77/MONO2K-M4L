@@ -2,7 +2,8 @@
 
 [MONO2K](https://github.com/InigoHernandez/mono2k) (Iñigo Hernández's Monomachine-style instrument: six mono
 machines, a 64-step sequencer with locks, conditions and ratchets, a lofi bus) as a free Max for Live instrument.
-The MONO2K core runs **unchanged** inside a Max object, `mono2k~`, so the device sounds exactly like the original.
+The MONO2K core runs **unchanged** inside a Max object, `mono2k_<version>~` (e.g. `mono2k_122~`: named per version so
+an old frozen device can't lend a new one its code; the version lives in `VERSION`), so the device sounds exactly like the original.
 GPL-3.0, like MONO2K.
 
 ```
@@ -41,7 +42,7 @@ Locally (macOS):
 git clone --depth 1 https://github.com/Cycling74/max-sdk-base external/max-sdk-base
 cmake -S external/mono2k~ -B build-mac -DCMAKE_BUILD_TYPE=Release
 cmake --build build-mac
-# -> build/externals/mono2k~.mxo
+# -> build/externals/mono2k_<version>~.mxo
 ```
 
 Engine test (any platform):
@@ -53,8 +54,8 @@ cc -O2 -Icore/src -Icore/gen -Iexternal/mono2k~ -o engine_test tests/engine_test
 
 ## Freezing the device for release (internal)
 
-1. Put `MONO2K.amxd`, `mono2k_panel.js`, `mono2k~.mxo` **and** `mono2k~.mxe64` in one folder (both externals, so the
-   frozen device works on Mac and Windows).
+1. Put `MONO2K.amxd`, `mono2k_panel_<v>.js`, `mono2k_<v>~.mxo` **and** `mono2k_<v>~.mxe64` in one folder (the release's
+   all-files zip; both externals, so the frozen device works on Mac and Windows). No older MONO2K files anywhere Max looks.
 2. Load the device in Live, open it in Max, check the screen runs, click Freeze, save.
 3. Test: copy only the frozen `.amxd` into an empty folder and load it from there, on a fresh Live set.
 
