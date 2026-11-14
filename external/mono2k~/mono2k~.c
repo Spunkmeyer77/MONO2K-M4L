@@ -14,6 +14,13 @@
 #include "jit.common.h"
 #include "m2k_engine.h"
 
+/* clang-cl says it is MSVC (_MSC_VER) but its preprocessor is the standard one, so the SDK's MSVC form of C74_VARFUN
+ * (object_method, jit_object_new, jit_object_method...) leaves C74_VARFUN_n unexpanded: use its standard form */
+#if defined(_MSC_VER) && defined(__clang__)
+#undef C74_VARFUN
+#define C74_VARFUN(VARFUN_IMPL, ...) C74_JOIN_2(C74_VARFUN_, C74_NUM_ARGS(__VA_ARGS__))( VARFUN_IMPL, __VA_ARGS__ )
+#endif
+
 #define SMALL 160
 
 typedef struct _mono2k {

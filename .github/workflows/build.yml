@@ -14,7 +14,7 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Engine test (Live at 48 kHz, clock sync, save and reload)
         run: |
           gcc -O2 -w -Icore/src -Icore/gen -Iexternal/mono2k~ -o engine_test tests/engine_test.c \
@@ -23,9 +23,9 @@ jobs:
 
   mac:
     needs: test
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Max SDK
         run: git clone --depth 1 https://github.com/Cycling74/max-sdk-base external/max-sdk-base
       - name: Build (universal, macOS 10.13+)
@@ -49,14 +49,14 @@ jobs:
       - name: Package
         run: |
           cd build/externals && ditto -c -k --keepParent "mono2k~.mxo" ../../mono2k-mac.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with: { name: mono2k-mac, path: mono2k-mac.zip }
 
   windows:
     needs: test
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Max SDK
         run: git clone --depth 1 https://github.com/Cycling74/max-sdk-base external/max-sdk-base
       - name: Build (x64, clang-cl)
@@ -66,7 +66,7 @@ jobs:
       - name: Package
         shell: pwsh
         run: Compress-Archive -Path "build/externals/mono2k~.mxe64" -DestinationPath mono2k-win.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with: { name: mono2k-win, path: mono2k-win.zip }
 
   release:
@@ -74,8 +74,8 @@ jobs:
     needs: [mac, windows]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
         with: { path: dl }
       - name: Bundle
         run: |
