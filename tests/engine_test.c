@@ -6,6 +6,7 @@
 #include "m2k.h"
 #include "m2k_engine.h"
 int m2k_ext_step(void); int m2k_ext_len(void);
+void m2k_ext_knob(int e, int *kind, int *pos, int *range);
 static FILE *wav; static long wn;
 static void wav_open(const char *p){ wav=fopen(p,"wb"); fwrite("RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x02\0\x80\xbb\0\0\0\xee\x02\0\x04\0\x10\0data\0\0\0\0",1,44,wav); }
 static void wav_put(float l,float r){ short s[2]={(short)fmaxf(-32767,fminf(32767,l*32767)),(short)fmaxf(-32767,fminf(32767,r*32767))}; fwrite(s,2,2,wav); wn++; }
@@ -59,6 +60,29 @@ int main(int argc,char**argv){
     printf("bytes differing: orig-vs-edit1 %d, orig-vs-edit2 %d, edit1-vs-edit2 %d\n",d12,d13,d23);
   }
   if(!(n3==n2 && !memcmp(st3+26,st2+26,n3-26))){puts("FAIL reload");fails++;}   /* (past the header and the 16 settings) */
+  /* knobs with ends: K1 to a position, the track, the machine, MASTER past its ends */
+  { int kind,pos,range;
+    e_push(EV_BTN,B_HOME,1); e_push(EV_BTN,B_HOME,0); for(int b=0;b<SR/4/N;b++) e_process(NULL,L,R,N);
+    e_push(EV_KNOB,E_SELECT,3); for(int b=0;b<SR/8/N;b++) e_process(NULL,L,R,N);
+    m2k_ext_knob(E_SELECT,&kind,&pos,&range); printf("track knob: kind %d pos %d range %d\n",kind,pos,range);
+    if(kind!=1||pos!=3||range!=5){puts("FAIL track knob");fails++;}
+    m2k_ext_knob(E_ALGO,&kind,&pos,&range); int to=(pos+5)%range;
+    e_push(EV_KNOB,E_ALGO,to); for(int b=0;b<SR/8/N;b++) e_process(NULL,L,R,N);
+    m2k_ext_knob(E_ALGO,&kind,&pos,&range); printf("machine knob: pos %d (asked %d) of %d\n",pos,to,range);
+    if(pos!=to){puts("FAIL machine knob");fails++;}
+    e_push(EV_BTN,B_ENV,1); e_push(EV_BTN,B_ENV,0); for(int b=0;b<SR/4/N;b++) e_process(NULL,L,R,N);   /* AMP page */
+    int ok=1;
+    for(int k=0;k<4;k++){ m2k_ext_knob(E_K1+k,&kind,&pos,&range); if(kind!=1) continue;
+      int want[3]={range/3, range, 0};
+      for(int w=0;w<3;w++){ e_push(EV_KNOB,E_K1+k,want[w]); e_push(EV_ENC,E_K1+k,0); for(int b=0;b<SR/16/N;b++) e_process(NULL,L,R,N);
+        int k2,p2,r2; m2k_ext_knob(E_K1+k,&k2,&p2,&r2); if(p2!=want[w]){ printf("  K%d asked %d got %d (range %d)\n",k+1,want[w],p2,r2); ok=0; } }
+      printf("K%d: kind %d range %d ok\n",k+1,kind,range); }
+    if(!ok){puts("FAIL K knobs");fails++;}
+    e_push(EV_KNOB,E_MASTER,500); for(int b=0;b<SR/16/N;b++) e_process(NULL,L,R,N);
+    m2k_ext_knob(E_MASTER,&kind,&pos,&range); printf("master asked 500: %d of %d\n",pos,range); if(pos!=127){puts("FAIL master end");fails++;}
+    e_push(EV_KNOB,E_MASTER,100); for(int b=0;b<SR/16/N;b++) e_process(NULL,L,R,N);
+    m2k_ext_knob(E_MASTER,&kind,&pos,&range); if(pos!=100){puts("FAIL master");fails++;}
+  }
   wav_close();
   printf(fails?"FAILED %d\n":"ALL OK\n",fails); return fails;
 }

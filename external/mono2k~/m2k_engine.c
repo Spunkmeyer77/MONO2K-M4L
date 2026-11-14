@@ -6,6 +6,8 @@
 #include "m2k_engine.h"
 
 int m2k_ext_midi_ch(void);        /* m2k_core_glue.c */
+void m2k_ext_knob(int e, int *kind, int *pos, int *range);
+void m2k_ext_knob_to(int e, int pos);
 
 #define LD(p) __atomic_load_n((p), __ATOMIC_ACQUIRE)
 #define ST(p, v) __atomic_store_n((p), (v), __ATOMIC_RELEASE)
@@ -62,6 +64,7 @@ static struct {
 
 static uint8_t fb[2][E_FB_BYTES];
 static uint8_t leds[2][E_LEDS];
+static int16_t knobs[2][E_KNOBS * 3];
 static uint32_t fseq;
 
 static uint8_t st_buf[E_STATE_MAX];
@@ -147,6 +150,7 @@ static void drain(void)
                 if (e.sync && e.playing) e.want_start = 1;
             }
             break;
+        case EV_KNOB: if (a >= 0 && a < E_COUNT) m2k_ext_knob_to(a, b); break;
         case EV_ROUTE: e.route = a < 0 ? 0 : a > M2K_TRACKS ? M2K_TRACKS : a; break;
         }
     }
@@ -236,16 +240,24 @@ static void publish_frame(void)
     uint32_t s = fseq + 1;
     memcpy(fb[s & 1], f, E_FB_BYTES);
     memcpy(leds[s & 1], l, E_LEDS);
+    for (int k = 0; k < E_KNOBS; k++) {
+        int kind, pos, range;
+        m2k_ext_knob(k, &kind, &pos, &range);
+        knobs[s & 1][k * 3] = (int16_t)kind;
+        knobs[s & 1][k * 3 + 1] = (int16_t)pos;
+        knobs[s & 1][k * 3 + 2] = (int16_t)range;
+    }
     ST(&fseq, s);
 }
 
 uint32_t e_frame_seq(void) { return LD(&fseq); }
 
-void e_frame_copy(uint8_t *dfb, uint8_t *dleds)
+void e_frame_copy(uint8_t *dfb, uint8_t *dleds, int16_t *dknobs)
 {
     uint32_t s = LD(&fseq);
     memcpy(dfb, fb[s & 1], E_FB_BYTES);
     memcpy(dleds, leds[s & 1], E_LEDS);
+    if (dknobs) memcpy(dknobs, knobs[s & 1], sizeof knobs[0]);
 }
 
 static void look_at_state(void)

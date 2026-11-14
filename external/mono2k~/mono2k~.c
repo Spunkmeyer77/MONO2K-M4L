@@ -3,9 +3,11 @@
  * for Max for Live. The core runs unchanged; this object plays it, feeds it Live's clock and MIDI, and shows its screen.
  *
  * inlet:   signal: Live's beat phase (plugphasor~), and every message
- * outlets: left, right audio; the screen 160 x 160 (jit_matrix); the screen 240 x 240 (jit_matrix); the LEDs (list of
- *          41: 27 keys then 14 buttons, 0..255); the saved state ("set ..." for a [pattr] kept in the Live set)
- * messages: btn i down | key i down | enc i delta | encabs i value | midi byte... | transport 0/1 | pos beats | sync 0/1 |
+ * outlets: left, right audio; the screen 320 x 320 (jit_matrix, for a 160-point view: Retina's pixels); the screen
+ *          240 x 240 (jit_matrix); the LEDs (list of 41: 27 keys then 14 buttons, 0..255) and "knobs" + 8 x (kind,
+ *          position, range); the saved state ("set ..." for a [pattr] kept in the Live set); "dial i value" (Push's
+ *          dials shown the knobs' values, for live.dial's set)
+ * messages: btn i down | key i down | enc i delta | knob i position | encabs i value (0..127, a dial) | midi byte... | transport 0/1 | pos beats | sync 0/1 |
  *           route 0..6 (0 the track in view) | state ... (a saved state back) | ink r g b | paper r g b */
 #include "ext.h"
 #include "ext_obex.h"
@@ -21,11 +23,11 @@
 #define C74_VARFUN(VARFUN_IMPL, ...) C74_JOIN_2(C74_VARFUN_, C74_NUM_ARGS(__VA_ARGS__))( VARFUN_IMPL, __VA_ARGS__ )
 #endif
 
-#define SMALL 160
+#define SMALL 320                 /* a 160-point view on a Retina screen: its pixels, so nothing scales it again */
 
 typedef struct _mono2k {
     t_pxobject ob;
-    void *out_small, *out_big, *out_leds, *out_state;
+    void *out_small, *out_big, *out_leds, *out_state, *out_dial;
     void *qe;
     t_critical crit;
     long owner;                       /* 1: this one plays the core (one per Live set) */
@@ -36,6 +38,10 @@ typedef struct _mono2k {
     uint8_t leds[E_LEDS];
     long leds_sent[E_LEDS];
     long leds_valid;
+    int16_t knobs[E_KNOBS * 3], knobs_sent[E_KNOBS * 3];
+    long knobs_valid;
+    long dial_sent[8];
+    double dial_touch[8];             /* when Push last turned dial i (ms): its value then not set back for a moment */
     float ink[3], paper[3];
     /* the MIDI parser: [midiin]'s bytes */
     int mst, mn, md[2], msysex;
@@ -47,7 +53,6 @@ typedef struct _mono2k {
     float *fin, *fl, *fr;
     long fcap;
     long connected_phase;
-    long enc_last[8], enc_have[8];    /* encabs: Live's dials (Push's knobs) as the encoders */
 } t_mono2k;
 
 static t_class *mono2k_class;
@@ -70,13 +75,20 @@ static void push(t_mono2k *x, int kind, int a, int b)
 static void mono2k_btn(t_mono2k *x, long i, long d) { push(x, EV_BTN, (int)i, d != 0); }
 static void mono2k_key(t_mono2k *x, long i, long d) { push(x, EV_KEY, (int)i, d != 0); }
 static void mono2k_enc(t_mono2k *x, long i, long d) { if (d) push(x, EV_ENC, (int)i, (int)d); }
-/* a dial's value (a Live parameter, so Push's knobs reach it): its change turns encoder i */
+/* a knob with ends: encoder i to position pos (0 .. its range) */
+static void mono2k_knob(t_mono2k *x, long i, long pos) { push(x, EV_KNOB, (int)i, (int)pos); }
+
+/* a dial's value 0..127 (a Live parameter, so Push's knobs reach it): the knob to the same share of its range; an
+ * endless one (a list that steps) turned by the change */
 static void mono2k_encabs(t_mono2k *x, long i, long v)
 {
     if (i < 0 || i > 7) return;
-    if (x->enc_have[i] && v != x->enc_last[i]) push(x, EV_ENC, (int)i, (int)(v - x->enc_last[i]));
-    x->enc_last[i] = v;
-    x->enc_have[i] = 1;
+    long last = x->dial_sent[i];
+    x->dial_sent[i] = v;
+    x->dial_touch[i] = gettime();
+    int kind = x->knobs[i * 3], range = x->knobs[i * 3 + 2];
+    if (kind == 1 && range > 0) push(x, EV_KNOB, (int)i, (int)((v * range + 63) / 127));
+    else if (kind == 2 && v != last) push(x, EV_ENC, (int)i, v > last ? 1 : -1);
 }
 static void mono2k_transport(t_mono2k *x, long on) { push(x, EV_TRANSPORT, on != 0, 0); }
 static void mono2k_pos(t_mono2k *x, double beats) { push(x, EV_POS, 0, (int)(beats * 1000.0 + 0.5)); }
@@ -138,6 +150,7 @@ void ext_main(void *r)
     class_addmethod(c, (method)mono2k_key, "key", A_LONG, A_LONG, 0);
     class_addmethod(c, (method)mono2k_enc, "enc", A_LONG, A_LONG, 0);
     class_addmethod(c, (method)mono2k_encabs, "encabs", A_LONG, A_LONG, 0);
+    class_addmethod(c, (method)mono2k_knob, "knob", A_LONG, A_LONG, 0);
     class_addmethod(c, (method)mono2k_transport, "transport", A_LONG, 0);
     class_addmethod(c, (method)mono2k_pos, "pos", A_FLOAT, 0);
     class_addmethod(c, (method)mono2k_sync, "sync", A_LONG, 0);
@@ -158,6 +171,7 @@ static void *mono2k_new(t_symbol *s, long argc, t_atom *argv)
     t_mono2k *x = (t_mono2k *)object_alloc(mono2k_class);
     if (!x) return NULL;
     dsp_setup((t_pxobject *)x, 1);
+    x->out_dial = outlet_new(x, NULL);
     x->out_state = outlet_new(x, NULL);
     x->out_leds = outlet_new(x, NULL);
     x->out_big = outlet_new(x, NULL);
@@ -199,10 +213,10 @@ static void mono2k_free(t_mono2k *x)
 
 static void mono2k_assist(t_mono2k *x, void *b, long m, long a, char *s)
 {
-    static const char *outs[] = { "left", "right", "screen 160 x 160 (jit_matrix)", "screen 240 x 240 (jit_matrix)",
-                                  "LEDs: 27 keys, 14 buttons", "saved state (to a pattr)" };
+    static const char *outs[] = { "left", "right", "screen 320 x 320 (jit_matrix)", "screen 240 x 240 (jit_matrix)",
+                                  "LEDs (list), knobs", "saved state (to a pattr)", "dial i value (to Push's dials)" };
     if (m == ASSIST_INLET) sprintf(s, "beat phase (plugphasor~), messages");
-    else if (a >= 0 && a < 6) sprintf(s, "%s", outs[a]);
+    else if (a >= 0 && a < 7) sprintf(s, "%s", outs[a]);
 }
 
 /* ------------------------------------------------------------------------------------------------ audio */
@@ -286,17 +300,33 @@ static void fill_big(t_mono2k *x)
     jit_object_method(x->mat_big, gensym("lock"), lock);
 }
 
-/* 240 -> 160: each pixel the share of ink over the 1.5 x 1.5 source pixels it covers (two from three: whole + half,
- * half + whole), so the dithering reads as grey rather than breaking up */
+/* 240 -> 320: each pixel the share of ink over the source it covers (0.75 of a pixel: whole or split between two),
+ * so the 1-bit art is drawn once at the view's own pixels, nothing smoothing it again */
+static int rs_i[SMALL][2];
+static float rs_w[SMALL][2];
+static void rs_init(void)
+{
+    static int done;
+    if (done) return;
+    const double step = (double)E_W / SMALL;
+    for (int j = 0; j < SMALL; j++) {
+        double a = j * step, b = a + step;
+        int i0 = (int)a, i1 = (int)(b - 1e-9);
+        if (i1 >= E_W) i1 = E_W - 1;
+        rs_i[j][0] = i0; rs_i[j][1] = i1;
+        if (i0 == i1) { rs_w[j][0] = 1.0f; rs_w[j][1] = 0.0f; }
+        else { rs_w[j][0] = (float)((i0 + 1 - a) / step); rs_w[j][1] = (float)((b - i1) / step); }
+    }
+    done = 1;
+}
+
 static void fill_small(t_mono2k *x)
 {
     static float cov[E_H][SMALL];
+    rs_init();
     for (int yy = 0; yy < E_H; yy++)
-        for (int j = 0; j < SMALL; j++) {
-            int m = (j >> 1) * 3;
-            cov[yy][j] = (j & 1) ? (0.5f * ink_at(x->fb, m + 1, yy) + ink_at(x->fb, m + 2, yy)) / 1.5f
-                                 : (ink_at(x->fb, m, yy) + 0.5f * ink_at(x->fb, m + 1, yy)) / 1.5f;
-        }
+        for (int j = 0; j < SMALL; j++)
+            cov[yy][j] = rs_w[j][0] * ink_at(x->fb, rs_i[j][0], yy) + rs_w[j][1] * ink_at(x->fb, rs_i[j][1], yy);
     t_jit_matrix_info info;
     char *bp = NULL;
     long lock = (long)jit_object_method(x->mat_small, gensym("lock"), 1);
@@ -304,12 +334,10 @@ static void fill_small(t_mono2k *x)
     jit_object_method(x->mat_small, gensym("getdata"), &bp);
     if (bp) {
         for (int i = 0; i < SMALL; i++) {
-            int m = (i >> 1) * 3;
             unsigned char *row = (unsigned char *)bp + i * info.dimstride[1];
-            for (int j = 0; j < SMALL; j++) {
-                float c = (i & 1) ? (0.5f * cov[m + 1][j] + cov[m + 2][j]) / 1.5f : (cov[m][j] + 0.5f * cov[m + 1][j]) / 1.5f;
-                put_px(row + j * 4, x->ink, x->paper, c);
-            }
+            const float w0 = rs_w[i][0], w1 = rs_w[i][1];
+            const float *c0 = cov[rs_i[i][0]], *c1 = cov[rs_i[i][1]];
+            for (int j = 0; j < SMALL; j++) put_px(row + j * 4, x->ink, x->paper, w0 * c0[j] + w1 * c1[j]);
         }
     }
     jit_object_method(x->mat_small, gensym("lock"), lock);
@@ -321,7 +349,7 @@ static void mono2k_qfn(t_mono2k *x)
     uint32_t s = e_frame_seq();
     if (s != x->seen_main) {
         x->seen_main = s;
-        e_frame_copy(x->fb, x->leds);
+        e_frame_copy(x->fb, x->leds, x->knobs);
         if (!x->mat_small) x->mat_small = make_matrix(SMALL, SMALL, &x->name_small);   /* (Jitter loaded by now) */
         if (!x->mat_big) x->mat_big = make_matrix(E_W, E_H, &x->name_big);
         t_atom a;
@@ -342,6 +370,27 @@ static void mono2k_qfn(t_mono2k *x)
             for (int i = 0; i < E_LEDS; i++) { x->leds_sent[i] = x->leds[i]; atom_setlong(l + i, x->leds[i]); }
             x->leds_valid = 1;
             outlet_list(x->out_leds, NULL, E_LEDS, l);
+        }
+        int kch = !x->knobs_valid;
+        for (int i = 0; i < E_KNOBS * 3 && !kch; i++) kch = x->knobs_sent[i] != x->knobs[i];
+        if (kch) {
+            t_atom k[E_KNOBS * 3];
+            for (int i = 0; i < E_KNOBS * 3; i++) { x->knobs_sent[i] = x->knobs[i]; atom_setlong(k + i, x->knobs[i]); }
+            x->knobs_valid = 1;
+            outlet_anything(x->out_leds, gensym("knobs"), E_KNOBS * 3, k);
+        }
+        /* Push's dials shown the knobs' values (not while Push turns one, so it is not fought) */
+        double now = gettime();
+        for (int i = 0; i < 8; i++) {
+            int kind = x->knobs[i * 3], pos = x->knobs[i * 3 + 1], range = x->knobs[i * 3 + 2];
+            if (kind != 1 || range <= 0 || now - x->dial_touch[i] < 400) continue;
+            long v = (pos * 127 + range / 2) / range;
+            if (v == x->dial_sent[i]) continue;
+            x->dial_sent[i] = v;
+            t_atom a2[2];
+            atom_setlong(a2, i);
+            atom_setlong(a2 + 1, v);
+            outlet_anything(x->out_dial, gensym("dial"), 2, a2);
         }
     }
     int n = e_state_take(x->sbuf, E_STATE_MAX);

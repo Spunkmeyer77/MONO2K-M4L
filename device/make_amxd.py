@@ -3,9 +3,9 @@
 # Writes MONO2K.amxd (a Max for Live instrument) around the mono2k~ object and the panel jsui.
 import json, struct, sys
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 OUT = sys.argv[1] if len(sys.argv) > 1 else "MONO2K.amxd"
-DW, DH = 830, 169
+DW, DH = 850, 169
 
 boxes, lines = [], []
 _n = [0]
@@ -52,21 +52,21 @@ ORANGE = [1.0, 0.5, 0.15, 1.0]
 box("panel", [10, 600, 120, 40], pres=[0, 0, DW, DH], ins=1, outs=0, bgcolor=DARK, background=1, rounded=0, border=0)
 
 # the engine
-eng = obj("mono2k~", 300, 300, ins=1, outs=6, otype=["signal", "signal", "", "", "", ""], w=320)
+eng = obj("mono2k~", 300, 300, ins=1, outs=7, otype=["signal", "signal", "", "", "", "", ""], w=360)
 pha = obj("plugphasor~", 300, 200, outs=1, otype=["signal"])
 mid = obj("midiin", 420, 200, outs=1, otype=["int"])
 out = obj("plugout~", 300, 420, ins=2, outs=0)
 wire(pha, 0, eng); wire(mid, 0, eng)
 wire(eng, 0, out, 0); wire(eng, 1, out, 1)
 
-# the screen in the device: 160 x 160 (the object draws it down from 240 itself)
+# the screen in the device: a 160-point view of a 320 x 320 matrix (Retina's own pixels: nothing scales it again)
 scr = box("jit.pwindow", [40, 420, 160, 160], pres=[4, 4, 160, 160], ins=1, outs=2, otype=["jit_matrix", ""],
           border=0.0, sync=1)
 wire(eng, 2, scr)
 sbig = obj("s ---m2kbig", 420, 380, ins=1, outs=0); wire(eng, 3, sbig)
 
 # the panel
-pnl = box("jsui", [240, 460, 560, 165], pres=[170, 2, 560, 165], ins=1, outs=1, otype=[""],
+pnl = box("jsui", [240, 460, 556, 165], pres=[172, 2, 556, 165], ins=1, outs=1, otype=[""],
           filename="mono2k_panel.js", parameter_enable=0, border=0)
 wire(eng, 4, pnl)
 sled = obj("s ---m2kleds", 560, 380, ins=1, outs=0); wire(eng, 4, sled)
@@ -97,17 +97,17 @@ wire(obs, 0, tib); wire(tib, 1, get); wire(get, 0, lob, 0); wire(lob, 0, rte); w
 wire(tib, 0, ptr); wire(ptr, 0, eng)
 
 # the right column: MIDI TO, SYNC, SCREEN, credits
-X = 738
-box("comment", [860, 40, 60, 18], "MIDI TO", pres=[X, 3, 84, 14], ins=1, outs=0, textcolor=TXT,
+X = 744
+box("comment", [860, 40, 60, 18], "MIDI TO", pres=[X, 2, 96, 14], ins=1, outs=0, textcolor=TXT,
     fontname="Arial Bold", fontsize=8.0)
-men = box("live.menu", [860, 60, 84, 16], pres=[X, 17, 84, 16], ins=1, outs=3, otype=["", "", "float"],
+men = box("live.menu", [860, 60, 96, 18], pres=[X, 17, 96, 18], ins=1, outs=3, otype=["", "", "float"],
           parameter_enable=1, activebgcolor=[0.27, 0.275, 0.29, 1.0], textcolor=[0.93, 0.92, 0.88, 1.0],
           saved_attribute_attributes=param("MIDI To", "MIDI To", 2, parameter_enum=["SEL", "T1", "T2", "T3", "T4", "T5", "T6"],
                                            parameter_mmax=6, parameter_initial_enable=1, parameter_initial=[0],
                                            parameter_info="Which track Live's MIDI plays: SEL the track in view"))
 prt = obj("prepend route", 860, 90); wire(men, 0, prt); wire(prt, 0, eng)
 
-syn = box("live.text", [960, 60, 84, 18], pres=[X, 40, 84, 18], ins=1, outs=2, otype=["", ""], mode=1,
+syn = box("live.text", [960, 60, 96, 20], pres=[X, 42, 96, 20], ins=1, outs=2, otype=["", ""], mode=1,
           text="SYNC OFF", texton="SYNC LIVE", parameter_enable=1,
           bgcolor=[0.27, 0.275, 0.29, 1.0], bgoncolor=ORANGE, textcolor=[0.93, 0.92, 0.88, 1.0], textoncolor=[0.1, 0.1, 0.1, 1.0],
           saved_attribute_attributes=param("Sync", "Sync", 2, parameter_enum=["off", "on"], parameter_mmax=1,
@@ -115,26 +115,30 @@ syn = box("live.text", [960, 60, 84, 18], pres=[X, 40, 84, 18], ins=1, outs=2, o
                                            parameter_info="On: Live's transport and tempo play the sequencer. Off: its own PLAY and tempo"))
 psy = obj("prepend sync", 960, 90); wire(syn, 0, psy); wire(psy, 0, eng)
 
-big = box("live.text", [1060, 60, 84, 18], pres=[X, 62, 84, 18], ins=1, outs=2, otype=["", ""], mode=0,
+big = box("live.text", [1060, 60, 96, 20], pres=[X, 68, 96, 20], ins=1, outs=2, otype=["", ""], mode=0,
           text="BIG SCREEN", texton="BIG SCREEN", parameter_enable=0,
           bgcolor=[0.27, 0.275, 0.29, 1.0], bgoncolor=ORANGE, textcolor=[0.93, 0.92, 0.88, 1.0])
 tb = obj("t b", 1060, 90); opn = msg("open", 1060, 120); pc = obj("pcontrol", 1060, 150)
 wire(big, 0, tb); wire(tb, 0, opn); wire(opn, 0, pc)
 
-for i, line in enumerate(["MONO2K core by", "Inigo Hernandez", "GPL-3.0 · free", "M4L port v" + VERSION,
-                          "ticcoross.gumroad.com"]):
-    box("comment", [860, 200 + 18 * i, 140, 16], line, pres=[X - 2, 92 + 14 * i, 92, 14], ins=1, outs=0,
-        textcolor=ORANGE if i == 4 else TXT, fontname="Arial", fontsize=7.5)
+for i, line in enumerate(["MONO2K by", "Inigo Hernandez", "GPL-3.0 · v" + VERSION, "ticcoross.gumroad.com"]):
+    box("comment", [860, 200 + 18 * i, 140, 16], line, pres=[X - 2, 100 + 14 * i, 104, 14], ins=1, outs=0,
+        textcolor=ORANGE if i == 3 else TXT, fontname="Arial", fontsize=7.5)
 
-# Push's knobs: eight dials, the encoders (parameters only, not on the panel)
+# Push's knobs: eight dials 0..127 (parameters only, not on the panel): each sets its knob to the same share of its
+# range, and is set back to the knob's value when it changes elsewhere (the object's "dial i v")
 ENC = ["Track", "Machine", "Pattern", "Knob 1", "Knob 2", "Knob 3", "Knob 4", "Master"]
+rdl = obj("route dial", 40, 640, ins=2, outs=2)
+spr = obj("spray 8", 40, 670, ins=1, outs=8)
+wire(eng, 6, rdl); wire(rdl, 0, spr)
 for i, nm in enumerate(ENC):
-    d = box("live.dial", [40 + 70 * i, 700, 44, 48], ins=1, outs=2, otype=["", "float"], parameter_enable=1,
-            saved_attribute_attributes=param("Enc " + nm, nm, 1, parameter_mmin=0, parameter_mmax=1000,
-                                             parameter_initial_enable=1, parameter_initial=[500],
-                                             parameter_unitstyle=0, parameter_invisible=1,
-                                             parameter_info="Turns MONO2K's " + nm + " encoder (for Push)"))
-    p = obj("prepend encabs %d" % i, 40 + 70 * i, 760, w=66)
+    d = box("live.dial", [40 + 70 * i, 740, 44, 48], ins=1, outs=2, otype=["", "float"], parameter_enable=1,
+            saved_attribute_attributes=param("Enc " + nm, nm, 1, parameter_mmin=0, parameter_mmax=127,
+                                             parameter_initial_enable=0, parameter_unitstyle=0, parameter_invisible=1,
+                                             parameter_info="MONO2K's " + nm + " knob, start to end (for Push)"))
+    ps = obj("prepend set", 40 + 70 * i, 705, w=66)
+    wire(spr, i, ps); wire(ps, 0, d)
+    p = obj("prepend encabs %d" % i, 40 + 70 * i, 800, w=66)
     wire(d, 0, p); wire(p, 0, eng)
 
 # the big window: the screen at 2x and the panel
@@ -153,26 +157,43 @@ def sbox(maxclass, rect, text=None, pres=None, ins=1, outs=0, otype=None, **kw):
     return b["id"]
 
 
-sbox("panel", [0, 0, 580, 680], pres=[0, 0, 580, 680], ins=1, outs=0, bgcolor=DARK, background=1, border=0)
+sbox("panel", [0, 0, 580, 700], pres=[0, 0, 580, 700], ins=1, outs=0, bgcolor=DARK, background=1, border=0)
 si = sbox("inlet", [700, 20, 30, 30], ins=0, outs=1, otype=[""])
 srb = sbox("newobj", [700, 60, 100, 22], "r ---m2kbig", ins=0, outs=1)
-spw = sbox("jit.pwindow", [50, 10, 480, 480], pres=[50, 10, 480, 480], ins=1, outs=2, otype=["jit_matrix", ""], border=0.0, sync=1)
+spw = sbox("jit.pwindow", [50, 34, 480, 480], pres=[50, 34, 480, 480], ins=1, outs=2, otype=["jit_matrix", ""], border=0.0, sync=1)
 srl = sbox("newobj", [700, 100, 100, 22], "r ---m2kleds", ins=0, outs=1)
-sjs = sbox("jsui", [10, 500, 560, 165], pres=[10, 500, 560, 165], ins=1, outs=1, otype=[""],
+sjs = sbox("jsui", [12, 524, 556, 165], pres=[12, 524, 556, 165], ins=1, outs=1, otype=[""],
            filename="mono2k_panel.js", parameter_enable=0, border=0)
 ssc = sbox("newobj", [700, 140, 100, 22], "s ---m2kcmd", ins=1, outs=0)
-for a, b in ((srb, spw), (srl, sjs), (sjs, ssc)):
-    sub_lines.append({"patchline": {"source": [a, 0], "destination": [b, 0]}})
+# ALWAYS ON TOP: the window floats over Live (kept in the Live set), applied again whenever the window opens
+top = sbox("live.text", [12, 8, 120, 20], pres=[12, 8, 120, 20], ins=1, outs=2, otype=["", ""], mode=1,
+           text="ALWAYS ON TOP", texton="ALWAYS ON TOP", parameter_enable=1,
+           bgcolor=[0.27, 0.275, 0.29, 1.0], bgoncolor=ORANGE, textcolor=[0.93, 0.92, 0.88, 1.0], textoncolor=[0.1, 0.1, 0.1, 1.0],
+           saved_attribute_attributes=param("On Top", "On Top", 2, parameter_enum=["off", "on"], parameter_mmax=1,
+                                            parameter_initial_enable=1, parameter_initial=[0], parameter_invisible=1,
+                                            parameter_info="Keeps the big screen window above Live"))
+sti = sbox("newobj", [700, 200, 40, 22], "t i i", ins=1, outs=2)
+sint = sbox("newobj", [700, 240, 40, 22], "int", ins=2, outs=1)
+sdl = sbox("newobj", [760, 20, 60, 22], "deferlow", ins=1, outs=1)
+ssel = sbox("newobj", [700, 280, 60, 22], "sel 1 0", ins=3, outs=3)
+mon = sbox("message", [700, 320, 200, 22], "window flags float, window exec", ins=2, outs=1)
+mof = sbox("message", [700, 350, 210, 22], "window flags nofloat, window exec", ins=2, outs=1)
+sthp = sbox("newobj", [700, 390, 80, 22], "thispatcher", ins=1, outs=2)
+for a, ao, b, bi in ((srb, 0, spw, 0), (srl, 0, sjs, 0), (sjs, 0, ssc, 0), (top, 0, sti, 0), (sti, 1, sint, 1),
+                     (sti, 0, ssel, 0), (si, 0, sdl, 0), (sdl, 0, sint, 0), (sint, 0, ssel, 0),
+                     (ssel, 0, mon, 0), (ssel, 1, mof, 0), (mon, 0, sthp, 0), (mof, 0, sthp, 0)):
+    sub_lines.append({"patchline": {"source": [a, ao], "destination": [b, bi]}})
 
 sub = {
     "fileversion": 1, "appversion": {"major": 9, "minor": 0, "revision": 7, "architecture": "x64", "modernui": 1},
-    "classnamespace": "box", "rect": [120.0, 120.0, 580.0, 680.0], "openinpresentation": 1, "toolbarvisible": 0,
+    "classnamespace": "box", "rect": [120.0, 120.0, 580.0, 700.0], "openinpresentation": 1, "toolbarvisible": 0,
     "enablehscroll": 0, "enablevscroll": 0, "statusbarvisible": 0, "default_fontsize": 10.0, "default_fontface": 0,
     "default_fontname": "Arial", "gridsize": [8.0, 8.0], "editing_bgcolor": DARK, "locked_bgcolor": DARK,
     "title": "MONO2K", "boxes": sub_boxes, "lines": sub_lines,
 }
 sp = box("newobj", [1060, 180, 90, 22], "p MONO2K", ins=1, outs=0, patcher=sub)
 wire(pc, 0, sp)
+wire(tb, 0, sp)            # (after the window opens: its ALWAYS ON TOP applied)
 
 patcher = {
     "patcher": {
