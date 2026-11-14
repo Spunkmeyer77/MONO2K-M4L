@@ -74,19 +74,30 @@ jobs:
         with: { name: mono2k-win, path: mono2k-win.zip }
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
+    # a tag's push, or a push to main whose VERSION has no release yet: published by the build itself
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: [mac, windows]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - name: Version
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="$(tr -d '\n' < VERSION)"
+          echo "v=$V" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then echo "go=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if gh release view "v$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "go=0" >> "$GITHUB_OUTPUT"; else echo "go=1" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/download-artifact@v5
+        if: steps.ver.outputs.go == '1'
         with: { path: dl }
       - name: Bundle
+        if: steps.ver.outputs.go == '1'
         run: |
-          V="${GITHUB_REF_NAME#v}"
+          V="${{ steps.ver.outputs.v }}"
           mkdir -p "MONO2K-$V"
           D="$(echo "$V" | tr -d .)"
-          [ "$V" = "$(tr -d '\n' < VERSION)" ] || { echo "tag $V and VERSION differ"; exit 1; }
           cp device/MONO2K.amxd "MONO2K-$V/"
           cp device/mono2k_panel.js "MONO2K-$V/mono2k_panel_$D.js"
           cp device/mono2k_panel.js "mono2k_panel_$D.js"
@@ -99,8 +110,25 @@ jobs:
           cp dl/mono2k-mac/mono2k-mac.zip "mono2k-external-$V-mac.zip"
           cp dl/mono2k-win/mono2k-win.zip "mono2k-external-$V-win.zip"
           cp device/MONO2K.amxd "MONO2K-$V-unfrozen.amxd"
+      - name: Notes
+        if: steps.ver.outputs.go == '1'
+        run: |
+          V="${{ steps.ver.outputs.v }}"
+          # this version's lines from the update history's source
+          python3 - "$V" > notes.md <<'PY'
+          import re, sys
+          v = sys.argv[1]
+          s = open("docs/NOTES.md").read()
+          m = re.search(r"^## " + re.escape(v) + r"\n(.*?)(?=^## |\Z)", s, re.S | re.M)
+          print("MONO2K for Max for Live " + v + "\n\n" + (m.group(1).strip() if m else ""))
+          PY
       - uses: softprops/action-gh-release@v2
+        if: steps.ver.outputs.go == '1'
         with:
+          tag_name: v${{ steps.ver.outputs.v }}
+          target_commitish: ${{ github.sha }}
+          name: MONO2K for Max for Live v${{ steps.ver.outputs.v }}
+          body_path: notes.md
           files: |
             MONO2K-*-all.zip
             mono2k-external-*-mac.zip
