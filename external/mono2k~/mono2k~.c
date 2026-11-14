@@ -3,17 +3,17 @@
  * for Max for Live. The core runs unchanged; this object plays it, feeds it Live's clock and MIDI, and shows its screen.
  *
  * inlet:   signal: Live's beat phase (plugphasor~), and every message
- * outlets: left, right audio; the screen 320 x 320 (jit_matrix, sharp: for a 160-point view, Retina's pixels); the screen
- *          240 x 240 (jit_matrix); the LEDs (list of 41: 27 keys then 14 buttons, 0..255) and "knobs" + 8 x (kind,
+ * outlets: left, right audio; the screen ("scr" + 1920 integers: 240 rows of 8 x 30 bits, MSB first, 1 ink, for the
+ *          screen jsui, which draws it at the display's own pixels); (unused); the LEDs (list of 41: 27 keys then 14 buttons, 0..255) and "knobs" + 8 x (kind,
  *          position, range); the saved state ("set ..." for a [pattr] kept in the Live set); "dial i value" (Push's
  *          dials shown the knobs' values, for live.dial's set)
  * messages: btn i down | key i down | enc i delta | knob i position | encabs i value (0..127, a dial) | midi byte... | transport 0/1 | pos beats | sync 0/1 |
- *           route 0..6 (0 the track in view) | state ... (a saved state back) | ink r g b | paper r g b */
+ *           route 0..6 (0 the track in view) | state ... (a saved state back) */
+#include <string.h>
 #include "ext.h"
 #include "ext_obex.h"
 #include "ext_critical.h"
 #include "z_dsp.h"
-#include "jit.common.h"
 #include "m2k_engine.h"
 
 /* clang-cl says it is MSVC (_MSC_VER) but its preprocessor is the standard one, so the SDK's MSVC form of C74_VARFUN
@@ -39,9 +39,9 @@ typedef struct _mono2k {
     t_critical crit;
     long owner;                       /* 1: this one plays the core (one per Live set) */
     uint32_t seen_audio, seen_main;
-    void *mat_small, *mat_big;
-    t_symbol *name_small, *name_big;
-    uint8_t fb[E_FB_BYTES];
+    uint8_t fb[E_FB_BYTES], fb_sent[E_FB_BYTES];
+    long fb_valid;
+    double fb_t;                      /* when the screen was last sent (at most 30 a second) */
     uint8_t leds[E_LEDS];
     long leds_sent[E_LEDS];
     long leds_valid;
@@ -49,7 +49,6 @@ typedef struct _mono2k {
     long knobs_valid;
     long dial_sent[8];
     double dial_touch[8];             /* when Push last turned dial i (ms): its value then not set back for a moment */
-    float ink[3], paper[3];
     /* the MIDI parser: [midiin]'s bytes */
     int mst, mn, md[2], msysex;
     /* the state's buffers */
@@ -148,15 +147,6 @@ static void mono2k_state(t_mono2k *x, t_symbol *s, long argc, t_atom *argv)
     else object_warn((t_object *)x, "saved state not recognised: starting from the factory patterns");
 }
 
-static void set_col(float *c, double r, double g, double b)
-{
-    c[0] = (float)(r < 0 ? 0 : r > 1 ? 1 : r);
-    c[1] = (float)(g < 0 ? 0 : g > 1 ? 1 : g);
-    c[2] = (float)(b < 0 ? 0 : b > 1 ? 1 : b);
-}
-static void mono2k_ink(t_mono2k *x, double r, double g, double b) { set_col(x->ink, r, g, b); x->seen_main = 0; }
-static void mono2k_paper(t_mono2k *x, double r, double g, double b) { set_col(x->paper, r, g, b); x->seen_main = 0; }
-
 void ext_main(void *r)
 {
     t_class *c = class_new(M2K_EXT_NAME, (method)mono2k_new, (method)mono2k_free, sizeof(t_mono2k), 0L, A_GIMME, 0);
@@ -174,8 +164,6 @@ void ext_main(void *r)
     class_addmethod(c, (method)mono2k_midi, "midi", A_GIMME, 0);
     class_addmethod(c, (method)mono2k_int, "int", A_LONG, 0);
     class_addmethod(c, (method)mono2k_state, "state", A_GIMME, 0);
-    class_addmethod(c, (method)mono2k_ink, "ink", A_FLOAT, A_FLOAT, A_FLOAT, 0);
-    class_addmethod(c, (method)mono2k_paper, "paper", A_FLOAT, A_FLOAT, A_FLOAT, 0);
     class_dspinit(c);
     class_register(CLASS_BOX, c);
     mono2k_class = c;
@@ -192,7 +180,7 @@ static int mono2k_try_claim(t_mono2k *x)
     x->owner = 1;
     e_init(x->sr > 0 ? x->sr : 44100);
     x->seen_main = x->seen_audio = 0;
-    x->leds_valid = x->knobs_valid = 0;
+    x->leds_valid = x->knobs_valid = x->fb_valid = 0;
     if (x->pend_n >= 3) {
         int len = e_state_decode(x->pend, (int)x->pend_n, x->sbuf, E_STATE_MAX);
         if (len > 0) e_state_put(x->sbuf, len);
@@ -222,8 +210,6 @@ static void *mono2k_new(t_symbol *s, long argc, t_atom *argv)
     x->ob.z_misc |= Z_NO_INPLACE;
     critical_new(&x->crit);
     x->qe = qelem_new(x, (method)mono2k_qfn);
-    set_col(x->paper, 0.894, 0.882, 0.839);
-    set_col(x->ink, 0.090, 0.094, 0.102);
     x->sbuf = (uint8_t *)sysmem_newptr(E_STATE_MAX);
     x->ibuf = (int32_t *)sysmem_newptr(sizeof(int32_t) * e_state_atoms(E_STATE_MAX));
     x->abuf = (t_atom *)sysmem_newptr(sizeof(t_atom) * e_state_atoms(E_STATE_MAX));
@@ -245,8 +231,6 @@ static void mono2k_free(t_mono2k *x)
     object_free(x->claim_clock);
     if (x->owner && g_owner == x) g_owner = NULL;
     sysmem_freeptr(x->pend);
-    if (x->mat_small) jit_object_free(x->mat_small);
-    if (x->mat_big) jit_object_free(x->mat_big);
     critical_free(x->crit);
     sysmem_freeptr(x->sbuf);
     sysmem_freeptr(x->ibuf);
@@ -258,7 +242,7 @@ static void mono2k_free(t_mono2k *x)
 
 static void mono2k_assist(t_mono2k *x, void *b, long m, long a, char *s)
 {
-    static const char *outs[] = { "left", "right", "screen 320 x 320 (jit_matrix)", "screen 240 x 240 (jit_matrix)",
+    static const char *outs[] = { "left", "right", "screen (scr + 1920 ints, to the screen jsui)", "(unused)",
                                   "LEDs (list), knobs", "saved state (to a pattr)", "dial i value (to Push's dials)" };
     if (m == ASSIST_INLET) sprintf(s, "beat phase (plugphasor~), messages");
     else if (a >= 0 && a < 7) sprintf(s, "%s", outs[a]);
@@ -301,82 +285,20 @@ static void mono2k_dsp64(t_mono2k *x, t_object *dsp64, short *count, double samp
 
 /* ------------------------------------------------------------------------------------------------ the screen */
 
-static void *make_matrix(int w, int h, t_symbol **name)
+/* the frame as 240 rows of 8 integers of 30 bits (MSB the leftmost dot), exact in any number Max or JavaScript keeps */
+static void send_screen(t_mono2k *x)
 {
-    t_jit_matrix_info info;
-    jit_matrix_info_default(&info);
-    info.type = gensym("char");
-    info.planecount = 4;
-    info.dimcount = 2;
-    info.dim[0] = w;
-    info.dim[1] = h;
-    void *m = jit_object_new(gensym("jit_matrix"), &info);
-    if (!m) return NULL;
-    *name = jit_symbol_unique();
-    m = jit_object_register(m, *name);
-    return m;
-}
-
-static inline int ink_at(const uint8_t *fb, int xx, int yy)
-{
-    return (fb[yy * (E_W / 8) + (xx >> 3)] >> (7 - (xx & 7))) & 1;
-}
-
-static void put_px(unsigned char *p, const float *ink, const float *paper, float c)
-{
-    p[0] = 255;
-    for (int k = 0; k < 3; k++) {
-        float v = paper[k] + (ink[k] - paper[k]) * c;
-        p[k + 1] = (unsigned char)(v * 255.0f + 0.5f);
-    }
-}
-
-static void fill_big(t_mono2k *x)
-{
-    t_jit_matrix_info info;
-    char *bp = NULL;
-    long lock = (long)jit_object_method(x->mat_big, gensym("lock"), 1);
-    jit_object_method(x->mat_big, gensym("getinfo"), &info);
-    jit_object_method(x->mat_big, gensym("getdata"), &bp);
-    if (bp) {
-        for (int yy = 0; yy < E_H; yy++) {
-            unsigned char *row = (unsigned char *)bp + yy * info.dimstride[1];
-            for (int xx = 0; xx < E_W; xx++) put_px(row + xx * 4, x->ink, x->paper, (float)ink_at(x->fb, xx, yy));
+    static t_atom a[E_H * 8];
+    for (int y = 0; y < E_H; y++)
+        for (int w = 0; w < 8; w++) {
+            long v = 0;
+            for (int b = 0; b < 30; b++) {
+                int xx = w * 30 + b;
+                v = (v << 1) | ((x->fb[y * (E_W / 8) + (xx >> 3)] >> (7 - (xx & 7))) & 1);
+            }
+            atom_setlong(a + y * 8 + w, v);
         }
-    }
-    jit_object_method(x->mat_big, gensym("lock"), lock);
-}
-
-/* 240 -> 320, sharp: each pixel takes the source pixel under its centre, so every pixel is ink or paper, never grey
- * (one source row and column in three is drawn twice); at the view's own pixels nothing smooths it again */
-static int nn_i[SMALL];
-static void nn_init(void)
-{
-    static int done;
-    if (done) return;
-    for (int j = 0; j < SMALL; j++) {
-        int i = (int)(((double)j + 0.5) * E_W / SMALL);
-        nn_i[j] = i < E_W ? i : E_W - 1;
-    }
-    done = 1;
-}
-
-static void fill_small(t_mono2k *x)
-{
-    nn_init();
-    t_jit_matrix_info info;
-    char *bp = NULL;
-    long lock = (long)jit_object_method(x->mat_small, gensym("lock"), 1);
-    jit_object_method(x->mat_small, gensym("getinfo"), &info);
-    jit_object_method(x->mat_small, gensym("getdata"), &bp);
-    if (bp) {
-        for (int i = 0; i < SMALL; i++) {
-            unsigned char *row = (unsigned char *)bp + i * info.dimstride[1];
-            const int sy = nn_i[i];
-            for (int j = 0; j < SMALL; j++) put_px(row + j * 4, x->ink, x->paper, (float)ink_at(x->fb, nn_i[j], sy));
-        }
-    }
-    jit_object_method(x->mat_small, gensym("lock"), lock);
+    outlet_anything(x->out_small, gensym("scr"), E_H * 8, a);
 }
 
 static void mono2k_qfn(t_mono2k *x)
@@ -386,18 +308,12 @@ static void mono2k_qfn(t_mono2k *x)
     if (s != x->seen_main) {
         x->seen_main = s;
         e_frame_copy(x->fb, x->leds, x->knobs);
-        if (!x->mat_small) x->mat_small = make_matrix(SMALL, SMALL, &x->name_small);   /* (Jitter loaded by now) */
-        if (!x->mat_big) x->mat_big = make_matrix(E_W, E_H, &x->name_big);
-        t_atom a;
-        if (x->mat_big) {
-            fill_big(x);
-            atom_setsym(&a, x->name_big);
-            outlet_anything(x->out_big, gensym("jit_matrix"), 1, &a);
-        }
-        if (x->mat_small) {
-            fill_small(x);
-            atom_setsym(&a, x->name_small);
-            outlet_anything(x->out_small, gensym("jit_matrix"), 1, &a);
+        double now0 = gettime();
+        if ((!x->fb_valid || memcmp(x->fb, x->fb_sent, E_FB_BYTES)) && now0 - x->fb_t >= 32) {
+            memcpy(x->fb_sent, x->fb, E_FB_BYTES);
+            x->fb_valid = 1;
+            x->fb_t = now0;
+            send_screen(x);
         }
         int changed = !x->leds_valid;
         for (int i = 0; i < E_LEDS && !changed; i++) changed = x->leds_sent[i] != x->leds[i];

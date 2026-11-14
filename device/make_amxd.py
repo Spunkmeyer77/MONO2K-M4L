@@ -7,6 +7,7 @@ import os
 VERSION = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "VERSION")).read().strip()
 EXT = "mono2k_%s~" % VERSION.replace(".", "")
 PANEL = "mono2k_panel_%s.js" % VERSION.replace(".", "")
+SCREEN = "mono2k_screen_%s.js" % VERSION.replace(".", "")
 OUT = sys.argv[1] if len(sys.argv) > 1 else "MONO2K.amxd"
 DW, DH = 850, 169
 
@@ -62,11 +63,10 @@ out = obj("plugout~", 300, 420, ins=2, outs=0)
 wire(pha, 0, eng); wire(mid, 0, eng)
 wire(eng, 0, out, 0); wire(eng, 1, out, 1)
 
-# the screen in the device: a 160-point view of a 320 x 320 matrix (Retina's own pixels: nothing scales it again)
-scr = box("jit.pwindow", [40, 420, 160, 160], pres=[4, 4, 160, 160], ins=1, outs=2, otype=["jit_matrix", ""],
-          border=0.0, sync=1)
+# the screen in the device: the screen jsui, drawn at the display's own pixels
+scr = box("jsui", [40, 420, 160, 160], pres=[4, 4, 160, 160], ins=1, outs=0, filename=SCREEN, parameter_enable=0, border=0)
 wire(eng, 2, scr)
-sbig = obj("s ---m2kbig", 420, 380, ins=1, outs=0); wire(eng, 3, sbig)
+sbig = obj("s ---m2kbig", 420, 380, ins=1, outs=0); wire(eng, 2, sbig)
 
 # the panel
 pnl = box("jsui", [240, 460, 556, 165], pres=[172, 2, 556, 165], ins=1, outs=1, otype=[""],
@@ -169,7 +169,7 @@ def sbox(maxclass, rect, text=None, pres=None, ins=1, outs=0, otype=None, **kw):
 sbox("panel", [0, 0, 580, 700], pres=[0, 0, 580, 700], ins=1, outs=0, bgcolor=DARK, background=1, border=0)
 si = sbox("inlet", [700, 20, 30, 30], ins=0, outs=1, otype=[""])
 srb = sbox("newobj", [700, 60, 100, 22], "r ---m2kbig", ins=0, outs=1)
-spw = sbox("jit.pwindow", [50, 34, 480, 480], pres=[50, 34, 480, 480], ins=1, outs=2, otype=["jit_matrix", ""], border=0.0, sync=1)
+spw = sbox("jsui", [50, 34, 480, 480], pres=[50, 34, 480, 480], ins=1, outs=0, filename=SCREEN, parameter_enable=0, border=0)
 srl = sbox("newobj", [700, 100, 100, 22], "r ---m2kleds", ins=0, outs=1)
 sjs = sbox("jsui", [12, 524, 556, 165], pres=[12, 524, 556, 165], ins=1, outs=1, otype=[""],
            filename=PANEL, parameter_enable=0, border=0)
@@ -217,6 +217,7 @@ patcher = {
         "digest": "MONO2K for Max for Live", "tags": "synth sequencer monomachine", "style": "",
         "boxes": boxes, "lines": lines,
         "dependency_cache": [
+            {"name": SCREEN, "bootpath": "~/MONO2K", "patcherrelativepath": ".", "type": "TEXT", "implicit": 1},
             {"name": PANEL, "bootpath": "~/MONO2K", "patcherrelativepath": ".", "type": "TEXT", "implicit": 1},
             {"name": EXT + ".mxo", "type": "iLaX"},
         ],

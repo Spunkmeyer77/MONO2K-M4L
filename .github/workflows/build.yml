@@ -90,6 +90,8 @@ jobs:
           cp device/MONO2K.amxd "MONO2K-$V/"
           cp device/mono2k_panel.js "MONO2K-$V/mono2k_panel_$D.js"
           cp device/mono2k_panel.js "mono2k_panel_$D.js"
+          cp device/mono2k_screen.js "MONO2K-$V/mono2k_screen_$D.js"
+          cp device/mono2k_screen.js "mono2k_screen_$D.js"
           cp docs/*.pdf "MONO2K-$V/" 2>/dev/null || true
           (cd "MONO2K-$V" && unzip -q ../dl/mono2k-mac/mono2k-mac.zip && unzip -q ../dl/mono2k-win/mono2k-win.zip)
           cp LICENSE "MONO2K-$V/LICENSE.txt"
@@ -105,4 +107,5 @@ jobs:
             mono2k-external-*-win.zip
             MONO2K-*-unfrozen.amxd
             mono2k_panel_*.js
+            mono2k_screen_*.js
             docs/*.pdf
