@@ -139,9 +139,9 @@ lnk = box("textbutton", [860, 260, 104, 14], pres=[X - 2, 142, 104, 14], ins=1, 
           textcolor=ORANGE, textoncolor=[1.0, 0.75, 0.45, 1.0], textovercolor=[1.0, 0.75, 0.45, 1.0],
           bgcolor=[0, 0, 0, 0], bgovercolor=[0, 0, 0, 0], bgoncolor=[0, 0, 0, 0], bgovercolor_on=[0, 0, 0, 0],
           border=0, rounded=0, align=0, underline=1, hint="Open ticcoross.gumroad.com")
-lb = obj("t b", 860, 290); lurl = msg("https://ticcoross.gumroad.com", 860, 320)
-lbr = obj("launchbrowser", 860, 350, ins=1, outs=0)
-wire(lnk, 0, lb); wire(lb, 0, lurl); wire(lurl, 0, lbr)
+lb = obj("t b", 860, 290)
+lurl = msg("; max launchbrowser https://ticcoross.gumroad.com", 860, 320)   # (Max opens the page in the browser)
+wire(lnk, 0, lb); wire(lb, 0, lurl)
 
 # Push's knobs: eight dials 0..127 (parameters only, not on the panel): each sets its knob to the same share of its
 # range, and is set back to the knob's value when it changes elsewhere (the object's "dial i v")
