@@ -130,9 +130,18 @@ big = box("live.text", [1060, 60, 96, 20], pres=[X, 68, 96, 20], ins=1, outs=2, 
 tb = obj("t b", 1060, 90); opn = msg("open", 1060, 120); pc = obj("pcontrol", 1060, 150)
 wire(big, 0, tb); wire(tb, 0, opn); wire(opn, 0, pc)
 
-for i, line in enumerate(["MONO2K by", "Inigo Hernandez", "GPL-3.0 · v" + VERSION, "ticcoross.gumroad.com"]):
+for i, line in enumerate(["MONO2K by", "Inigo Hernandez", "GPL-3.0 · v" + VERSION]):
     box("comment", [860, 200 + 18 * i, 140, 16], line, pres=[X - 2, 100 + 14 * i, 104, 14], ins=1, outs=0,
-        textcolor=ORANGE if i == 3 else TXT, fontname="Arial", fontsize=7.5)
+        textcolor=TXT, fontname="Arial", fontsize=7.5)
+# the store: a link (a flat text button opening the page in the browser)
+lnk = box("textbutton", [860, 260, 104, 14], pres=[X - 2, 142, 104, 14], ins=1, outs=3, otype=["", "", "int"],
+          text="ticcoross.gumroad.com", texton="ticcoross.gumroad.com", mode=0, fontname="Arial", fontsize=7.5,
+          textcolor=ORANGE, textoncolor=[1.0, 0.75, 0.45, 1.0], textovercolor=[1.0, 0.75, 0.45, 1.0],
+          bgcolor=[0, 0, 0, 0], bgovercolor=[0, 0, 0, 0], bgoncolor=[0, 0, 0, 0], bgovercolor_on=[0, 0, 0, 0],
+          border=0, rounded=0, align=0, underline=1, hint="Open ticcoross.gumroad.com")
+lb = obj("t b", 860, 290); lurl = msg("https://ticcoross.gumroad.com", 860, 320)
+lbr = obj("launchbrowser", 860, 350, ins=1, outs=0)
+wire(lnk, 0, lb); wire(lb, 0, lurl); wire(lurl, 0, lbr)
 
 # Push's knobs: eight dials 0..127 (parameters only, not on the panel): each sets its knob to the same share of its
 # range, and is set back to the knob's value when it changes elsewhere (the object's "dial i v")
