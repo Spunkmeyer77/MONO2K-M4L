@@ -49,6 +49,8 @@ typedef struct _mono2k {
     long knobs_valid;
     long dial_sent[8];
     double dial_touch[8];             /* when Push last turned dial i (ms): its value then not set back for a moment */
+    long dial_have[8];                /* a dial's first value seen (its value at load: not a turn) */
+    double born;                      /* when this object was made */
     /* the MIDI parser: [midiin]'s bytes */
     int mst, mn, md[2], msysex;
     /* the state's buffers */
@@ -95,6 +97,9 @@ static void mono2k_encabs(t_mono2k *x, long i, long v)
     if (i < 0 || i > 7) return;
     long last = x->dial_sent[i];
     x->dial_sent[i] = v;
+    /* a dial's value as the device loads (its saved value, 0 in a new set) is where it stands, never a turn: only
+     * the changes after it, and not in the first moments, move MONO2K */
+    if (!x->dial_have[i] || gettime() - x->born < 2000) { x->dial_have[i] = 1; return; }
     x->dial_touch[i] = gettime();
     int kind = x->knobs[i * 3], range = x->knobs[i * 3 + 2];
     if (kind == 1 && range > 0) push(x, EV_KNOB, (int)i, (int)((v * range + 63) / 127));
@@ -215,6 +220,7 @@ static void *mono2k_new(t_symbol *s, long argc, t_atom *argv)
     x->abuf = (t_atom *)sysmem_newptr(sizeof(t_atom) * e_state_atoms(E_STATE_MAX));
     x->pend = (int32_t *)sysmem_newptr(sizeof(int32_t) * e_state_atoms(E_STATE_MAX));
     x->sr = sys_getsr();
+    x->born = gettime();
     x->claim_clock = clock_new(x, (method)mono2k_claim);
     if (!mono2k_try_claim(x)) {
         object_warn((t_object *)x, "another MONO2K is playing: this one waits, and plays once that one is gone");
