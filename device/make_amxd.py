@@ -3,7 +3,7 @@
 # Writes MONO2K.amxd (a Max for Live instrument) around the mono2k~ object and the panel jsui.
 import json, struct, sys
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 OUT = sys.argv[1] if len(sys.argv) > 1 else "MONO2K.amxd"
 DW, DH = 850, 169
 

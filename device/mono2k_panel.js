@@ -69,6 +69,7 @@ function paint() {
         var cx = ECX[i], cy = 21, r = i >= 3 && i <= 6 ? 15 : 13, kn = knobs[i];
         var kind = kn[0], range = kn[2];
         var f = (drag && drag.kind == "e" && drag.i == i && drag.abs) ? drag.f : (range > 0 ? kn[1] / range : 0);
+        if (i < 3 && range > 0) f = Math.round(f * range) / range;   // TRACK, MACHINE, PATTERN: on their steps only
         // the track
         if (kind == 1) {
             mgraphics.set_line_width(2.2);

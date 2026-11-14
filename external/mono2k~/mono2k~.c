@@ -3,7 +3,7 @@
  * for Max for Live. The core runs unchanged; this object plays it, feeds it Live's clock and MIDI, and shows its screen.
  *
  * inlet:   signal: Live's beat phase (plugphasor~), and every message
- * outlets: left, right audio; the screen 320 x 320 (jit_matrix, for a 160-point view: Retina's pixels); the screen
+ * outlets: left, right audio; the screen 320 x 320 (jit_matrix, sharp: for a 160-point view, Retina's pixels); the screen
  *          240 x 240 (jit_matrix); the LEDs (list of 41: 27 keys then 14 buttons, 0..255) and "knobs" + 8 x (kind,
  *          position, range); the saved state ("set ..." for a [pattr] kept in the Live set); "dial i value" (Push's
  *          dials shown the knobs' values, for live.dial's set)
@@ -300,33 +300,23 @@ static void fill_big(t_mono2k *x)
     jit_object_method(x->mat_big, gensym("lock"), lock);
 }
 
-/* 240 -> 320: each pixel the share of ink over the source it covers (0.75 of a pixel: whole or split between two),
- * so the 1-bit art is drawn once at the view's own pixels, nothing smoothing it again */
-static int rs_i[SMALL][2];
-static float rs_w[SMALL][2];
-static void rs_init(void)
+/* 240 -> 320, sharp: each pixel takes the source pixel under its centre, so every pixel is ink or paper, never grey
+ * (one source row and column in three is drawn twice); at the view's own pixels nothing smooths it again */
+static int nn_i[SMALL];
+static void nn_init(void)
 {
     static int done;
     if (done) return;
-    const double step = (double)E_W / SMALL;
     for (int j = 0; j < SMALL; j++) {
-        double a = j * step, b = a + step;
-        int i0 = (int)a, i1 = (int)(b - 1e-9);
-        if (i1 >= E_W) i1 = E_W - 1;
-        rs_i[j][0] = i0; rs_i[j][1] = i1;
-        if (i0 == i1) { rs_w[j][0] = 1.0f; rs_w[j][1] = 0.0f; }
-        else { rs_w[j][0] = (float)((i0 + 1 - a) / step); rs_w[j][1] = (float)((b - i1) / step); }
+        int i = (int)(((double)j + 0.5) * E_W / SMALL);
+        nn_i[j] = i < E_W ? i : E_W - 1;
     }
     done = 1;
 }
 
 static void fill_small(t_mono2k *x)
 {
-    static float cov[E_H][SMALL];
-    rs_init();
-    for (int yy = 0; yy < E_H; yy++)
-        for (int j = 0; j < SMALL; j++)
-            cov[yy][j] = rs_w[j][0] * ink_at(x->fb, rs_i[j][0], yy) + rs_w[j][1] * ink_at(x->fb, rs_i[j][1], yy);
+    nn_init();
     t_jit_matrix_info info;
     char *bp = NULL;
     long lock = (long)jit_object_method(x->mat_small, gensym("lock"), 1);
@@ -335,9 +325,8 @@ static void fill_small(t_mono2k *x)
     if (bp) {
         for (int i = 0; i < SMALL; i++) {
             unsigned char *row = (unsigned char *)bp + i * info.dimstride[1];
-            const float w0 = rs_w[i][0], w1 = rs_w[i][1];
-            const float *c0 = cov[rs_i[i][0]], *c1 = cov[rs_i[i][1]];
-            for (int j = 0; j < SMALL; j++) put_px(row + j * 4, x->ink, x->paper, w0 * c0[j] + w1 * c1[j]);
+            const int sy = nn_i[i];
+            for (int j = 0; j < SMALL; j++) put_px(row + j * 4, x->ink, x->paper, (float)ink_at(x->fb, nn_i[j], sy));
         }
     }
     jit_object_method(x->mat_small, gensym("lock"), lock);
