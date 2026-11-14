@@ -3,7 +3,7 @@
 # Writes MONO2K.amxd (a Max for Live instrument) around the mono2k~ object and the panel jsui.
 import json, struct, sys
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 OUT = sys.argv[1] if len(sys.argv) > 1 else "MONO2K.amxd"
 DW, DH = 850, 169
 
@@ -79,21 +79,27 @@ pat = obj("pattr m2kstate", 700, 380, ins=1, outs=3, w=110, parameter_enable=1,
 wire(eng, 5, pat)
 pst = obj("prepend state", 700, 420); wire(pat, 0, pst); wire(pst, 0, eng)
 
-# Live's transport: is_playing, and the song time at the moment it starts
+# Live's transport: is_playing starts and stops; current_song_time, observed all along, gives the song position at
+# the start (no read of the Live API before it is ready)
 dev = obj("live.thisdevice", 40, 40, ins=1, outs=3)
-tbb = obj("t b b", 40, 70, ins=1, outs=2)
-pth = obj("live.path live_set", 40, 100, ins=1, outs=3, w=120)
-prp = msg("property is_playing", 200, 100)
-obs = obj("live.observer", 40, 140, ins=2, outs=2)
-lob = obj("live.object", 200, 200, ins=2, outs=1)
-tib = obj("t i b", 40, 170, ins=1, outs=2)
-get = msg("get current_song_time", 120, 200)
-rte = obj("route current_song_time", 200, 230, ins=2, outs=2, w=150)
+dfl = obj("deferlow", 40, 60)
+tbb = obj("t b b b", 40, 80, ins=1, outs=3)
+pth = obj("live.path live_set", 40, 110, ins=1, outs=3, w=120)
+prp = msg("property is_playing", 200, 110)
+prt2 = msg("property current_song_time", 360, 110)
+obs = obj("live.observer", 40, 150, ins=2, outs=2)
+obt = obj("live.observer", 360, 150, ins=2, outs=2)
+fpos = obj("f", 360, 190, ins=2, outs=1)
+tib = obj("t i b", 40, 190, ins=1, outs=2)
 ppos = obj("prepend pos", 200, 260)
 ptr = obj("prepend transport", 40, 260, w=110)
-wire(dev, 0, tbb); wire(tbb, 1, prp); wire(prp, 0, obs, 0); wire(tbb, 0, pth)
-wire(pth, 0, obs, 1); wire(pth, 0, lob, 1)
-wire(obs, 0, tib); wire(tib, 1, get); wire(get, 0, lob, 0); wire(lob, 0, rte); wire(rte, 0, ppos); wire(ppos, 0, eng)
+wire(dev, 0, dfl); wire(dfl, 0, tbb)
+wire(tbb, 2, prp); wire(prp, 0, obs, 0)
+wire(tbb, 1, prt2); wire(prt2, 0, obt, 0)
+wire(tbb, 0, pth)
+wire(pth, 0, obs, 1); wire(pth, 0, obt, 1)
+wire(obt, 0, fpos, 1)
+wire(obs, 0, tib); wire(tib, 1, fpos, 0); wire(fpos, 0, ppos); wire(ppos, 0, eng)
 wire(tib, 0, ptr); wire(ptr, 0, eng)
 
 # the right column: MIDI TO, SYNC, SCREEN, credits

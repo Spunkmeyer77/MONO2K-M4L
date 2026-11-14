@@ -53,6 +53,10 @@ typedef struct _mono2k {
     float *fin, *fl, *fr;
     long fcap;
     long connected_phase;
+    void *claim_clock;                /* a silent one checks now and then whether it can play (the other gone) */
+    double sr;
+    int32_t *pend;                    /* a saved state that came while silent: loaded once it plays */
+    long pend_n;
 } t_mono2k;
 
 static t_class *mono2k_class;
@@ -124,8 +128,13 @@ static void mono2k_int(t_mono2k *x, long n) { midi_byte(x, (int)n); }   /* [midi
 
 static void mono2k_state(t_mono2k *x, t_symbol *s, long argc, t_atom *argv)
 {
-    if (!x->owner || argc < 3) return;
+    if (argc < 3) return;
     long n = argc > e_state_atoms(E_STATE_MAX) ? e_state_atoms(E_STATE_MAX) : argc;
+    if (!x->owner) {                  /* silent for now: kept for when it plays */
+        for (long i = 0; i < n; i++) x->pend[i] = (int32_t)atom_getlong(argv + i);
+        x->pend_n = n;
+        return;
+    }
     for (long i = 0; i < n; i++) x->ibuf[i] = (int32_t)atom_getlong(argv + i);
     int len = e_state_decode(x->ibuf, (int)n, x->sbuf, E_STATE_MAX);
     if (len > 0) e_state_put(x->sbuf, len);
@@ -166,6 +175,31 @@ void ext_main(void *r)
     post("mono2k~ (MONO2K for Max for Live) - GPL-3.0 - core by Inigo Hernandez");
 }
 
+/* the core is one per process: the first MONO2K plays it. Another (a second device, or the copy a freeze makes while
+ * the old one is still loaded) waits and takes it over once it is free, with the state it was given meanwhile */
+static int mono2k_try_claim(t_mono2k *x)
+{
+    if (x->owner) return 1;
+    if (g_owner) return 0;
+    g_owner = x;
+    x->owner = 1;
+    e_init(x->sr > 0 ? x->sr : 44100);
+    x->seen_main = x->seen_audio = 0;
+    x->leds_valid = x->knobs_valid = 0;
+    if (x->pend_n >= 3) {
+        int len = e_state_decode(x->pend, (int)x->pend_n, x->sbuf, E_STATE_MAX);
+        if (len > 0) e_state_put(x->sbuf, len);
+        x->pend_n = 0;
+    }
+    return 1;
+}
+
+static void mono2k_claim(t_mono2k *x)
+{
+    if (!mono2k_try_claim(x)) clock_fdelay(x->claim_clock, 250);
+    else post("mono2k~: playing");
+}
+
 static void *mono2k_new(t_symbol *s, long argc, t_atom *argv)
 {
     t_mono2k *x = (t_mono2k *)object_alloc(mono2k_class);
@@ -186,12 +220,13 @@ static void *mono2k_new(t_symbol *s, long argc, t_atom *argv)
     x->sbuf = (uint8_t *)sysmem_newptr(E_STATE_MAX);
     x->ibuf = (int32_t *)sysmem_newptr(sizeof(int32_t) * e_state_atoms(E_STATE_MAX));
     x->abuf = (t_atom *)sysmem_newptr(sizeof(t_atom) * e_state_atoms(E_STATE_MAX));
-    if (!g_owner) {
-        g_owner = x;
-        x->owner = 1;
-        e_init(sys_getsr());
-    } else
-        object_error((t_object *)x, "only one MONO2K can play per Live set: this one stays silent");
+    x->pend = (int32_t *)sysmem_newptr(sizeof(int32_t) * e_state_atoms(E_STATE_MAX));
+    x->sr = sys_getsr();
+    x->claim_clock = clock_new(x, (method)mono2k_claim);
+    if (!mono2k_try_claim(x)) {
+        object_warn((t_object *)x, "another MONO2K is playing: this one waits, and plays once that one is gone");
+        clock_fdelay(x->claim_clock, 250);
+    }
     return x;
 }
 
@@ -199,7 +234,10 @@ static void mono2k_free(t_mono2k *x)
 {
     dsp_free((t_pxobject *)x);
     qelem_free(x->qe);
+    clock_unset(x->claim_clock);
+    object_free(x->claim_clock);
     if (x->owner && g_owner == x) g_owner = NULL;
+    sysmem_freeptr(x->pend);
     if (x->mat_small) jit_object_free(x->mat_small);
     if (x->mat_big) jit_object_free(x->mat_big);
     critical_free(x->crit);
@@ -248,6 +286,8 @@ static void mono2k_dsp64(t_mono2k *x, t_object *dsp64, short *count, double samp
         x->fcap = maxvectorsize;
     }
     x->connected_phase = count[0];
+    x->sr = samplerate;
+    if (!x->owner) mono2k_try_claim(x);
     if (x->owner) e_set_sr(samplerate);
     object_method(dsp64, gensym("dsp_add64"), x, mono2k_perform64, 0, NULL);
 }
